@@ -104,7 +104,6 @@ const main = async () => {
     }
 };
 
-// Ctrl+C ile çıkış için
 process.on("SIGINT", () => {
     logger.warn("\nİşlem iptal edildi. Çıkılıyor.");
     process.exit(0);
