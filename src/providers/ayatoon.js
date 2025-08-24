@@ -1,0 +1,134 @@
+const axios = require("axios");
+const cheerio = require("cheerio");
+
+class AyaToonProvider {
+    constructor() {
+        this.name = "AyaToon";
+        this.baseUrl = "https://ayatoon.com";
+        this.searchUrl = "https://ayatoon.com/wp-admin/admin-ajax.php";
+    }
+
+    getDownloadHeaders(chapterUrl) {
+        return {
+            Referer: this.baseUrl,
+        };
+    }
+
+    async search(title) {
+        try {
+            const response = await axios.post(
+                this.searchUrl,
+                `action=ts_ac_do_search&ts_ac_query=${encodeURIComponent(
+                    title,
+                )}`,
+                {
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "User-Agent":
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    },
+                },
+            );
+            if (response.data?.series?.[0]?.all?.length > 0) {
+                return response.data.series[0].all.map((manga) => ({
+                    title: manga.post_title,
+                    url: manga.post_link,
+                    provider: this.name,
+                    latestChapter: manga.post_latest,
+                }));
+            }
+            return [];
+        } catch (error) {
+            console.error(`[${this.name}] Arama hatası: ${error.message}`);
+            return [];
+        }
+    }
+
+    async getChapters(mangaUrl) {
+        try {
+            const response = await axios.get(mangaUrl, {
+                headers: {
+                    "User-Agent":
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                },
+            });
+            const $ = cheerio.load(response.data);
+            const chapters = [];
+
+            $("#chapterlist li").each((_, element) => {
+                const linkElement = $(element).find("a");
+                const chapterLink = linkElement.attr("href");
+                const chapterTitle = linkElement
+                    .find("span.chapternum")
+                    .text()
+                    .trim();
+                const chapterNumber = parseFloat($(element).data("num"));
+
+                if (chapterLink && chapterTitle && !isNaN(chapterNumber)) {
+                    chapters.push({
+                        title: chapterTitle,
+                        url: chapterLink,
+                        number: chapterNumber,
+                    });
+                }
+            });
+
+            return chapters.sort((a, b) => a.number - b.number);
+        } catch (error) {
+            console.error(`[${this.name}] Bölüm alma hatası: ${error.message}`);
+            return [];
+        }
+    }
+
+    async getChapterImages(chapterUrl) {
+        try {
+            const response = await axios.get(chapterUrl, {
+                headers: {
+                    "User-Agent":
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                },
+            });
+            const $ = cheerio.load(response.data);
+            let images = [];
+
+            $("script").each((_, element) => {
+                const scriptContent = $(element).html();
+                if (scriptContent?.includes("ts_reader.run")) {
+                    const match = scriptContent.match(
+                        /ts_reader\.run\((.*)\);/,
+                    );
+                    if (match?.[1]) {
+                        try {
+                            const readerData = JSON.parse(match[1]);
+                            if (readerData.sources?.[0]?.images) {
+                                images = readerData.sources[0].images;
+                                return false;
+                            }
+                        } catch (e) {
+                            /* Hata olursa görmezden gel, yedek yönteme geç */
+                        }
+                    }
+                }
+            });
+
+            if (images.length === 0) {
+                $("#readerarea img.ts-main-image").each((_, element) => {
+                    const imgSrc =
+                        $(element).attr("src") || $(element).attr("data-src");
+                    if (imgSrc) images.push(imgSrc.trim());
+                });
+            }
+
+            return images.filter(
+                (url) => typeof url === "string" && url.trim() !== "",
+            );
+        } catch (error) {
+            console.error(
+                `[${this.name}] Resim URL'lerini alma hatası: ${error.message}`,
+            );
+            return [];
+        }
+    }
+}
+
+module.exports = AyaToonProvider;
