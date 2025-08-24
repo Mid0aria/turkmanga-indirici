@@ -94,11 +94,11 @@ const askSelectManga = (mangaList) => {
     ]);
 };
 
-const askSelectChapterRange = (chapters) => {
+const askSelectChapterRange = async (chapters) => {
     const firstChapter = chapters[0].number;
     const lastChapter = chapters[chapters.length - 1].number;
 
-    return customPrompt([
+    const { choice } = await customPrompt([
         {
             type: "list",
             name: "choice",
@@ -110,27 +110,43 @@ const askSelectChapterRange = (chapters) => {
                 { name: "İptal", value: "cancel" },
             ],
         },
+    ]);
+
+    if (choice !== "range") {
+        return { choice };
+    }
+
+    const { start } = await customPrompt([
         {
             type: "input",
             name: "start",
             message: `Başlangıç bölümü (${firstChapter}-${lastChapter}):`,
-            when: (answers) => answers.choice === "range",
             validate: (input) =>
                 !isNaN(parseFloat(input)) || "Lütfen bir sayı girin.",
             filter: (input) => parseFloat(input),
         },
+    ]);
+
+    const { end } = await customPrompt([
         {
             type: "input",
             name: "end",
-            message: (answers) =>
-                `Bitiş bölümü (${answers.start}-${lastChapter}):`,
-            when: (answers) => answers.choice === "range",
-            validate: (input, answers) =>
-                parseFloat(input) >= answers.start ||
-                "Bitiş, başlangıçtan büyük olmalı.",
+            message: `Bitiş bölümü (${start}-${lastChapter}):`,
+            validate: (input) => {
+                const endValue = parseFloat(input);
+                if (isNaN(endValue)) {
+                    return "Lütfen bir sayı girin.";
+                }
+                if (endValue < start) {
+                    return "Bitiş, başlangıçtan büyük olmalı.";
+                }
+                return true;
+            },
             filter: (input) => parseFloat(input),
         },
     ]);
+
+    return { choice, start, end };
 };
 
 const askConfirmation = (message) =>
