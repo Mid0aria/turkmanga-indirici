@@ -14,6 +14,11 @@ class WebtoonTrProvider {
         };
     }
 
+    _extractChapterNumber(title) {
+        const match = title.match(/(\d+(\.\d+)?)/);
+        return match ? parseFloat(match[0]) : 0;
+    }
+
     async search(title) {
         try {
             const response = await axios.post(
