@@ -1,22 +1,70 @@
 const inquirer = require("inquirer");
+const fse = require("fs-extra");
 const logger = require("./logger");
 
 const prompt = inquirer.createPromptModule();
 
-// SIGINT (Ctrl+C) hatasını yakalayıp programı düzgünce sonlandırır
 const customPrompt = async (questions) => {
     try {
-        return await prompt(questions);
+        const answers = await prompt(questions);
+        return answers;
     } catch (error) {
-        // Inquirer v8'de Ctrl+C hatası fırlatmaz, bu genellikle v9+ içindir
-        // ama önlem olarak kalması iyidir.
-        if (error.isTtyError) {
+        if (error.message.includes("SIGINT")) {
             logger.warn("\nİşlem iptal edildi. Çıkılıyor.");
             process.exit(0);
         }
         throw error;
     }
 };
+
+const askMainMenuAction = () =>
+    customPrompt([
+        {
+            type: "list",
+            name: "action",
+            message: "Ne yapmak istersin?",
+            choices: [
+                { name: "🚀 Manga Ara ve İndir", value: "search" },
+                { name: "⚙️  Ayarlar", value: "settings" },
+                { name: "🚪 Çıkış", value: "exit" },
+            ],
+        },
+    ]);
+
+const askSettingsMenu = () =>
+    customPrompt([
+        {
+            type: "list",
+            name: "action",
+            message: "Ayarlar Menüsü",
+            choices: [
+                { name: "📁 İndirme Klasörünü Değiştir", value: "changeDir" },
+                { name: "↩️  Geri", value: "back" },
+            ],
+        },
+    ]);
+
+const askForDirectoryPath = (currentPath) =>
+    customPrompt([
+        {
+            type: "input",
+            name: "folderPath",
+            message: "Yeni indirme klasörü yolunu girin:",
+            default: currentPath,
+            validate: (input) => {
+                const trimmedInput = input.trim();
+                if (!trimmedInput) return "Yol boş olamaz.";
+                if (!fse.existsSync(trimmedInput)) {
+                    return "Bu yol mevcut değil. Lütfen var olan bir klasör girin.";
+                }
+                if (!fse.lstatSync(trimmedInput).isDirectory()) {
+                    return "Girilen yol bir dizin değil.";
+                }
+                return true;
+            },
+            filter: (input) => input.trim(),
+        },
+    ]);
 
 const askSearchTerm = () =>
     customPrompt([
@@ -31,9 +79,7 @@ const askSearchTerm = () =>
 
 const askSelectManga = (mangaList) => {
     const choices = mangaList.map((manga, index) => ({
-        name: `${manga.title} [${manga.provider}] (Son Bölüm: ${
-            manga.latestChapter || "Bilinmiyor"
-        })`,
+        name: `${manga.title} [${manga.provider}] (Son Bölüm: ${manga.latestChapter || "Bilinmiyor"})`,
         value: index,
     }));
 
@@ -109,6 +155,9 @@ const askParallelDownload = () =>
     ]);
 
 module.exports = {
+    askMainMenuAction,
+    askSettingsMenu,
+    askForDirectoryPath,
     askSearchTerm,
     askSelectManga,
     askSelectChapterRange,

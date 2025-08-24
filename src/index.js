@@ -1,5 +1,6 @@
-const fs = require("fs");
-const config = require("./config");
+const fse = require("fs-extra");
+const nfd = require("node-file-dialog");
+const settingsManager = require("./core/settingsManager");
 const logger = require("./ui/logger");
 const prompts = require("./ui/prompts");
 const { loadProviders, searchAllProviders } = require("./core/providerManager");
@@ -8,9 +9,8 @@ const { downloadChapters } = require("./core/downloader");
 class App {
     constructor() {
         this.providers = loadProviders();
-        if (!fs.existsSync(config.DOWNLOAD_DIR)) {
-            fs.mkdirSync(config.DOWNLOAD_DIR, { recursive: true });
-        }
+        this.settings = settingsManager.getSettings();
+        fse.ensureDirSync(this.settings.downloadDir);
     }
 
     async getChapterSelection(allChapters) {
@@ -32,7 +32,7 @@ class App {
         }
     }
 
-    async run() {
+    async startMangaDownloader() {
         while (true) {
             const { term } = await prompts.askSearchTerm();
             if (term.toLowerCase() === "exit") break;
@@ -78,6 +78,7 @@ class App {
                     selectedManga,
                     provider,
                     parallel,
+                    this.settings.downloadDir,
                 );
             } else {
                 logger.warn("İndirme iptal edildi.");
@@ -89,6 +90,66 @@ class App {
             if (!continueSearch) break;
         }
     }
+
+    async changeDownloadDirectory() {
+        logger.info(`Mevcut indirme klasörü: ${this.settings.downloadDir}`);
+        const hasGUI = process.env.DISPLAY || process.env.WAYLAND_DISPLAY;
+        let newDir;
+
+        try {
+            if (hasGUI) {
+                const paths = await nfd({ type: "directory" });
+                if (paths && paths.length > 0) {
+                    newDir = paths[0];
+                } else {
+                    logger.warn("Klasör seçimi iptal edildi.");
+                    return;
+                }
+            } else {
+                logger.info(
+                    "Grafik arayüz bulunamadı, lütfen yolu manuel girin.",
+                );
+                const answer = await prompts.askForDirectoryPath(
+                    this.settings.downloadDir,
+                );
+                newDir = answer.folderPath;
+            }
+
+            fse.ensureDirSync(newDir);
+            settingsManager.updateSetting("downloadDir", newDir);
+            this.settings.downloadDir = newDir;
+            logger.success(`İndirme klasörü güncellendi: ${newDir}`);
+        } catch (e) {
+            logger.error(
+                `Klasör seçimi sırasında bir hata oluştu: ${e.message}`,
+            );
+        }
+    }
+
+    async handleSettings() {
+        while (true) {
+            logger.header("AYARLAR");
+            const { action } = await prompts.askSettingsMenu();
+            if (action === "changeDir") {
+                await this.changeDownloadDirectory();
+            } else if (action === "back") {
+                break;
+            }
+        }
+    }
+
+    async run() {
+        while (true) {
+            const { action } = await prompts.askMainMenuAction();
+            if (action === "search") {
+                await this.startMangaDownloader();
+            } else if (action === "settings") {
+                await this.handleSettings();
+            } else if (action === "exit") {
+                break;
+            }
+        }
+    }
 }
 
 const main = async () => {
@@ -97,7 +158,7 @@ const main = async () => {
         await app.run();
     } catch (error) {
         logger.error(`Kritik bir hata oluştu: ${error.message}`);
-        console.error(error); // Geliştirme için stack trace'i göster
+        console.error(error);
     } finally {
         logger.success("\n👋 Görüşmek üzere!");
         process.exit(0);

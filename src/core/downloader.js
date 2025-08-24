@@ -19,11 +19,12 @@ const downloadImage = async (url, filePath, headers) => {
             writer.on("error", reject);
         });
     } catch (error) {
-        // Hata durumunda boş bir dosya oluşturmak yerine dosyayı silelim
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
         }
-        throw new Error(`Resim indirilemedi: ${url} - ${error.message}`);
+        throw new Error(
+            `Resim indirilemedi: ${url.substring(0, 60)}... - ${error.message}`,
+        );
     }
 };
 
@@ -31,10 +32,9 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
     const { chapter, mangaDir, safeMangaName, index, total } = chapterInfo;
     const numberString = String(chapter.number).padStart(4, "0");
     const chapterFileName = `${safeMangaName}-b${numberString}`;
-    const chapterDir = path.join(mangaDir, chapterFileName); // Geçici klasör
+    const chapterDir = path.join(mangaDir, "temp", chapterFileName); // Geçici klasör
     const cbzPath = path.join(mangaDir, `${chapterFileName}.cbz`);
 
-    // Eğer CBZ dosyası zaten varsa, atla
     if (fs.existsSync(cbzPath)) {
         logger.warn(
             `[${index + 1}/${total}] ${chapter.title} zaten mevcut, atlanıyor.`,
@@ -54,61 +54,65 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
         chapterBar.update(5, { status: "Resim linkleri alınıyor..." });
         const imageUrls = await provider.getChapterImages(chapter.url);
         if (imageUrls.length === 0) {
-            logger.warn(
-                `Bölüm ${chapter.number} için resim bulunamadı, atlanıyor.`,
-            );
             chapterBar.update(100, { status: "Resim Yok!" });
+            fs.rmSync(chapterDir, { recursive: true, force: true });
             return;
         }
 
         chapterBar.update(15, {
             status: `${imageUrls.length} resim indiriliyor...`,
-            total: imageUrls.length, // Bar'ın total değerini resim sayısına güncelleyelim
         });
 
-        const imageBar = createBar(imageUrls.length, {
-            filename: `Resimler`,
-            status: "İndiriliyor...",
-        });
-
-        for (let i = 0; i < imageUrls.length; i++) {
-            const ext = path.extname(new URL(imageUrls[i]).pathname) || ".jpg";
+        const imageTasks = imageUrls.map((url, i) => async () => {
+            const ext = path.extname(new URL(url).pathname) || ".jpg";
             const imagePath = path.join(
                 chapterDir,
                 `${String(i + 1).padStart(3, "0")}${ext}`,
             );
             const headers = provider.getDownloadHeaders
-                ? provider.getDownloadHeaders(imageUrls[i])
+                ? provider.getDownloadHeaders(url)
                 : {};
-            await downloadImage(imageUrls[i], imagePath, headers);
-            imageBar.increment();
+            await downloadImage(url, imagePath, headers);
+        });
+
+        for (let i = 0; i < imageTasks.length; i++) {
+            await imageTasks[i]();
+            chapterBar.update(
+                15 + Math.floor(((i + 1) / imageTasks.length) * 60),
+            );
         }
-        imageBar.stop();
-        multibar.remove(imageBar);
 
         chapterBar.update(75, { status: "CBZ oluşturuluyor..." });
         await createCBZ(chapterDir, cbzPath);
 
         chapterBar.update(95, { status: "Temizlik yapılıyor..." });
-        fs.rmSync(chapterDir, { recursive: true, force: true });
+        fs.rmSync(path.join(mangaDir, "temp"), {
+            recursive: true,
+            force: true,
+        });
 
         chapterBar.update(100, { status: "Tamamlandı!" });
     } catch (error) {
-        chapterBar.update(100, { status: `Hata: ${error.message}` });
+        chapterBar.update(100, {
+            status: `Hata: ${error.message.substring(0, 30)}`,
+        });
         if (fs.existsSync(chapterDir)) {
             fs.rmSync(chapterDir, { recursive: true, force: true });
         }
     }
 };
 
+// SADECE BU FONKSİYONUN İMZASI VE İLK SATIRI DEĞİŞTİ
 const downloadChapters = async (
     chapters,
     selectedManga,
     provider,
     useParallel,
+    downloadDir,
 ) => {
     const safeMangaName = createSafeFileName(selectedManga.title);
-    const mangaDir = path.join(config.DOWNLOAD_DIR, safeMangaName);
+    // DEĞİŞİKLİK: Sabit config yolu yerine parametre kullanılıyor
+    const mangaDir = path.join(downloadDir, safeMangaName);
     if (!fs.existsSync(mangaDir)) fs.mkdirSync(mangaDir, { recursive: true });
 
     logger.header("İNDİRME BAŞLIYOR");
