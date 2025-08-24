@@ -1,12 +1,8 @@
 const fs = require("fs");
-const path = require("path");
 const archiver = require("archiver");
 
 const createSafeFileName = (name) => {
-    return name
-        .replace(/[<>:"/\\|?*]/g, "")
-        .replace(/\s+/g, "_")
-        .trim();
+    return name.replace(/[<>:"/\\|?*]/g, "").trim();
 };
 
 const createCBZ = (sourceDir, outputPath) => {

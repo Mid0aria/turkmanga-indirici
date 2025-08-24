@@ -20,7 +20,7 @@ class AthenaMangaProvider {
 
     getDownloadHeaders(chapterUrl) {
         return {
-            Referer: this.baseUrl,
+            Referer: chapterUrl || this.baseUrl,
         };
     }
 
@@ -116,7 +116,7 @@ class AthenaMangaProvider {
                                 images = readerData.sources[0].images;
                                 return false;
                             }
-                        } catch (e) {
+                        } catch {
                             /* Hata olursa görmezden gel, yedek yönteme geç */
                         }
                     }

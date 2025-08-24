@@ -10,7 +10,7 @@ class AyaToonProvider {
 
     getDownloadHeaders(chapterUrl) {
         return {
-            Referer: this.baseUrl,
+            Referer: chapterUrl || this.baseUrl,
         };
     }
 
@@ -104,7 +104,7 @@ class AyaToonProvider {
                                 images = readerData.sources[0].images;
                                 return false;
                             }
-                        } catch (e) {
+                        } catch {
                             /* Hata olursa görmezden gel, yedek yönteme geç */
                         }
                     }

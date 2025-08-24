@@ -10,7 +10,7 @@ class WebtoonTrProvider {
 
     getDownloadHeaders(chapterUrl) {
         return {
-            Referer: this.baseUrl,
+            Referer: chapterUrl || this.baseUrl,
         };
     }
 
