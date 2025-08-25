@@ -23,6 +23,7 @@
         "fs-extra": "^11.3.1",
         "inquirer": "^12.9.3",
         "node-file-dialog": "^1.0.3",
+        "puppeteer-real-browser": "^1.4.3",
         "simple-git": "^3.28.0"
     },
     "devDependencies": {

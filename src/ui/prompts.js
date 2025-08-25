@@ -171,6 +171,8 @@ const askParallelDownload = () =>
     ]);
 
 module.exports = {
+    inquirer,
+    customPrompt,
     askMainMenuAction,
     askSettingsMenu,
     askForDirectoryPath,
