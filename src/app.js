@@ -165,9 +165,6 @@ const main = async () => {
     }
 };
 
-process.on("SIGINT", () => {
-    logger.warn("\nİşlem iptal edildi. Çıkılıyor.");
-    process.exit(0);
-});
-
-main();
+module.exports = {
+    main,
+};

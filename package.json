@@ -2,10 +2,10 @@
     "name": "manga-downloader-cli",
     "version": "1.0.0",
     "description": "A modern CLI for downloading turkish manga.",
-    "main": "src/index.js",
+    "main": "index.js",
     "type": "commonjs",
     "scripts": {
-        "start": "node src/index.js",
+        "start": "node index.js",
         "format": "prettier --write ."
     },
     "keywords": [
@@ -22,7 +22,8 @@
         "cli-progress": "^3.12.0",
         "fs-extra": "^11.3.1",
         "inquirer": "^12.9.3",
-        "node-file-dialog": "^1.0.3"
+        "node-file-dialog": "^1.0.3",
+        "simple-git": "^3.28.0"
     },
     "devDependencies": {
         "@eslint/js": "^9.34.0",
