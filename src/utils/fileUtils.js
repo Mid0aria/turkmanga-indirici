@@ -5,6 +5,12 @@ const createSafeFileName = (name) => {
     return name.replace(/[<>:"/\\|?*]/g, "").trim();
 };
 
+async function ensureDirExists(dir) {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
 const createCBZ = (sourceDir, outputPath) => {
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(outputPath);
@@ -19,4 +25,4 @@ const createCBZ = (sourceDir, outputPath) => {
     });
 };
 
-module.exports = { createSafeFileName, createCBZ };
+module.exports = { createSafeFileName, createCBZ, ensureDirExists };

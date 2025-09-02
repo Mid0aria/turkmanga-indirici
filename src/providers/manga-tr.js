@@ -1,7 +1,8 @@
+const os = require("os");
+const { URLSearchParams } = require("url");
 const axios = require("axios");
 const cheerio = require("cheerio");
 const { connect } = require("puppeteer-real-browser");
-const { URLSearchParams } = require("url");
 const prompts = require("../ui/prompts");
 const logger = require("../ui/logger");
 
@@ -20,11 +21,15 @@ class MangaTRProvider {
     }
 
     async _initializeSession() {
+        const isLinux = os.platform() === "linux";
         let browser, page;
         try {
             ({ browser, page } = await connect({
                 headless: true,
                 args: ["--no-sandbox", "--disable-setuid-sandbox"],
+                executablePath: isLinux
+                    ? "/usr/bin/chromium-browser"
+                    : undefined,
             }));
 
             await page.setUserAgent(this.session.userAgent);

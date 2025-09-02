@@ -121,7 +121,7 @@ async function checkForUpdatesAndRestart() {
                 ),
             );
             const repoUrl =
-                "https://gitea.anlayana.com/mido/manga-downloader.git";
+                "https://github.com/Mid0aria/turkmanga-indirici.git";
             try {
                 await git.init();
                 await git.addRemote("origin", repoUrl);

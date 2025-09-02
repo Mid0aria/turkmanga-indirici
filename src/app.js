@@ -1,8 +1,9 @@
-const fse = require("fs-extra");
+const path = require("path");
 const nfd = require("node-file-dialog");
 const settingsManager = require("./core/settingsManager");
 const logger = require("./ui/logger");
 const prompts = require("./ui/prompts");
+const { ensureDirExists } = require("./utils/fileUtils");
 const { loadProviders, searchAllProviders } = require("./core/providerManager");
 const { downloadChapters } = require("./core/downloader");
 
@@ -10,7 +11,8 @@ class App {
     constructor() {
         this.providers = loadProviders();
         this.settings = settingsManager.getSettings();
-        fse.ensureDirSync(this.settings.downloadDir);
+        ensureDirExists(this.settings.downloadDir);
+        ensureDirExists(path.join(__dirname, "..", "data"));
     }
 
     async getChapterSelection(allChapters) {
@@ -115,7 +117,7 @@ class App {
                 newDir = answer.folderPath;
             }
 
-            fse.ensureDirSync(newDir);
+            await ensureDirExists(newDir);
             settingsManager.updateSetting("downloadDir", newDir);
             this.settings.downloadDir = newDir;
             logger.success(`İndirme klasörü güncellendi: ${newDir}`);

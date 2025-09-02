@@ -1,10 +1,20 @@
 const fse = require("fs-extra");
 const path = require("path");
 
-const SETTINGS_FILE_PATH = path.join(process.cwd(), "settings.json");
+const SETTINGS_FILE_PATH = path.join(
+    __dirname,
+    "..",
+    "..",
+    "data",
+    "settings.json",
+);
 
 const DEFAULT_SETTINGS = {
-    downloadDir: path.join(process.cwd(), "downloads"),
+    downloadDir: path.join(
+        process.env.USERPROFILE || process.env.HOME,
+        "Downloads",
+        "MangaDownloads",
+    ),
 };
 
 const getSettings = () => {
