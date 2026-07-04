@@ -196,12 +196,9 @@ const downloadChapters = async (
     // Manga kapak resmini (poster) indir
     if (selectedManga.coverImageUrl) {
         try {
-            const ext =
-                path.extname(new URL(selectedManga.coverImageUrl).pathname) ||
-                ".jpg";
-            const coverPath = path.join(mangaDir, `cover${ext}`);
+            const coverPath = path.join(mangaDir, "cover.png");
             if (!fs.existsSync(coverPath)) {
-                logger.info(`Kapak resmi indiriliyor: cover${ext}`);
+                logger.info("Kapak resmi indiriliyor: cover.png");
                 const headers = provider.getDownloadHeaders
                     ? provider.getDownloadHeaders()
                     : {};
