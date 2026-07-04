@@ -31,7 +31,7 @@ class TempestMangasProvider {
         const isLinux = os.platform() === "linux";
         try {
             const { browser } = await connect({
-                headless: true,
+                headless: false, // Görsel takip için false bırakıldı
                 args: ["--no-sandbox", "--disable-setuid-sandbox"],
                 executablePath: isLinux
                     ? "/usr/bin/chromium-browser"
@@ -40,7 +40,40 @@ class TempestMangasProvider {
 
             this.browser = browser;
 
-            const tempPage = await this.browser.newPage();
+            // REKLAM/POPUP ENGELLEYİCİ: Yeni açılan alakasız sekmeleri otomatik tespit edip kapat
+            this.browser.on("targetcreated", async (target) => {
+                try {
+                    if (target.type() === "page") {
+                        const newPage = await target.page();
+                        if (newPage) {
+                            // URL yönlendirmelerini takip et
+                            newPage.on("framenavigated", async (frame) => {
+                                if (frame === newPage.mainFrame()) {
+                                    const url = newPage.url();
+                                    if (url && !url.includes("juratempe.st") && url !== "about:blank") {
+                                        try {
+                                            await newPage.close();
+                                            console.log(`[${this.name}] Reklam sekmesi engellendi ve kapatıldı: ${url}`);
+                                        } catch {
+                                            // ignore
+                                        }
+                                    }
+                                }
+                            });
+
+                            const url = newPage.url();
+                            if (url && !url.includes("juratempe.st") && url !== "about:blank") {
+                                await newPage.close();
+                                console.log(`[${this.name}] Reklam sekmesi engellendi ve kapatıldı: ${url}`);
+                            }
+                        }
+                    }
+                } catch {
+                    // ignore
+                }
+            });
+
+            const tempPage = await this._createNewPage();
             this.userAgent = await tempPage.evaluate(() => navigator.userAgent);
             await tempPage.close();
         } catch (error) {
@@ -49,6 +82,22 @@ class TempestMangasProvider {
             );
             throw error;
         }
+    }
+
+    // JS tabanlı window.open reklamlarını bloke eden güvenli sayfa oluşturucu
+    async _createNewPage() {
+        const page = await this.browser.newPage();
+        try {
+            await page.evaluateOnNewDocument(() => {
+                window.open = () => {
+                    console.log("window.open engellendi.");
+                    return { focus: () => {} };
+                };
+            });
+        } catch {
+            // ignore
+        }
+        return page;
     }
 
     async closeBrowser() {
@@ -66,9 +115,9 @@ class TempestMangasProvider {
         await this._ensureBrowser();
         let page = null;
         try {
-            page = await this.browser.newPage();
+            page = await this._createNewPage();
             await page.goto(this.baseUrl, {
-                waitUntil: "networkidle2",
+                waitUntil: "domcontentloaded",
                 timeout: 60000,
             });
             return await page.evaluate(fn, ...args);
@@ -113,13 +162,24 @@ class TempestMangasProvider {
             if (results?.json?.hits) {
                 return results.json.hits.map((manga) => ({
                     title:
+                        manga.titleJpRomaji ||
                         manga.titleTr ||
                         manga.titleEn ||
-                        manga.titleJpRomaji ||
                         manga.slug,
+                    titleTr: manga.titleTr,
+                    titleEn: manga.titleEn,
+                    titleJp: manga.titleJp,
                     url: `${this.baseUrl}/explore/${manga.slug}`,
                     provider: this.name,
                     latestChapter: "",
+                    // ComicInfo.xml için zenginleştirilmiş veri
+                    summary: manga.synopsis || manga.description,
+                    genres: manga.genres
+                        ? manga.genres.map((g) => g.name).join(", ")
+                        : "",
+                    demographic: manga.demographic,
+                    releaseDate: manga.releaseDate,
+                    status: manga.seriesStatus,
                 }));
             }
             return [];
@@ -133,12 +193,27 @@ class TempestMangasProvider {
         let page = null;
         try {
             await this._ensureBrowser();
-            page = await this.browser.newPage();
+            page = await this._createNewPage();
 
             await page.goto(mangaUrl, {
-                waitUntil: "networkidle2",
+                waitUntil: "domcontentloaded",
                 timeout: 60000,
             });
+
+            try {
+                await page.waitForSelector("a[data-slot='chapter-row']", {
+                    timeout: 15000,
+                });
+            } catch (e) {
+                const title = await page.title();
+                const bodyText = await page.evaluate(() =>
+                    document.body.innerText.substring(0, 300),
+                );
+                console.warn(
+                    `\n[${this.name}] Bölüm listesi yüklenmesi beklenirken zaman aşımı oluştu. ` +
+                        `Sayfa Başlığı: "${title}". İçerik: "${bodyText.replace(/\n/g, " ").trim()}"\n`,
+                );
+            }
 
             const allChapters = [];
             let hasNextPage = true;
@@ -210,6 +285,7 @@ class TempestMangasProvider {
                     const container =
                         page1Btn.closest("nav") || page1Btn.parentElement;
                     if (!container) return null;
+
                     const navButtons = Array.from(
                         container.querySelectorAll(
                             "button[data-slot='button'], a[data-slot='button']",
@@ -310,12 +386,13 @@ class TempestMangasProvider {
                 throw new Error(`Geçersiz bölüm URL'i: ${chapterUrl}`);
             }
 
-            page = await this.browser.newPage();
+            page = await this._createNewPage();
 
             await page.goto(chapterUrl, {
-                waitUntil: "networkidle2",
+                waitUntil: "domcontentloaded",
                 timeout: 60000,
             });
+
             const apiResult = await page.evaluate(
                 async (mSlug, cSlug) => {
                     const response = await fetch(

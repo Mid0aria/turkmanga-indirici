@@ -35,6 +35,12 @@ const createComicInfoXml = (metadata) => {
   <Web>${escapeXml(metadata.web)}</Web>
   <PageCount>${metadata.pageCount}</PageCount>
   <ScanInformation>${escapeXml(metadata.provider)}</ScanInformation>
+  <Genre>${escapeXml(metadata.genre || "")}</Genre>
+  <Summary>${escapeXml(metadata.summary || "")}</Summary>
+  <Year>${escapeXml(metadata.year || "")}</Year>
+  <Month>${escapeXml(metadata.month || "")}</Month>
+  <Day>${escapeXml(metadata.day || "")}</Day>
+  <Manga>${escapeXml(metadata.manga || "Yes")}</Manga>
   <Writer></Writer>
   <Penciller></Penciller>
   <Inker></Inker>
@@ -43,8 +49,6 @@ const createComicInfoXml = (metadata) => {
   <CoverArtist></CoverArtist>
   <Editor></Editor>
   <Publisher></Publisher>
-  <Genre></Genre>
-  <Summary></Summary>
 </ComicInfo>`;
 };
 
@@ -127,13 +131,36 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
 
         // DEĞİŞİKLİK: Metadata oluşturma ve yazma adımı
         chapterBar.update(75, { status: "Metadata oluşturuluyor..." });
+        
+        let year = "";
+        let month = "";
+        let day = "";
+        if (chapterInfo.mangaMetadata?.releaseDate) {
+            try {
+                const date = new Date(chapterInfo.mangaMetadata.releaseDate);
+                if (!isNaN(date.getTime())) {
+                    year = String(date.getFullYear());
+                    month = String(date.getMonth() + 1);
+                    day = String(date.getDate());
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
         const metadata = {
-            series: chapterInfo.mangaTitle, // Manga başlığını chapterInfo'ya eklememiz gerekecek
+            series: chapterInfo.mangaTitle,
             title: chapter.title,
             number: chapter.number,
             web: chapter.url,
             pageCount: imageUrls.length,
             provider: provider.name,
+            genre: chapterInfo.mangaMetadata?.genres || "",
+            summary: chapterInfo.mangaMetadata?.summary || "",
+            year,
+            month,
+            day,
+            manga: "Yes"
         };
         const xmlContent = createComicInfoXml(metadata);
         const xmlPath = path.join(chapterDir, "ComicInfo.xml");
@@ -179,8 +206,17 @@ const downloadChapters = async (
         safeMangaName,
         index,
         total: chapters.length,
-        // DEĞİŞİKLİK: Manga başlığını buraya ekliyoruz ki downloadSingleChapter içinde kullanılabilsin
         mangaTitle: selectedManga.title,
+        mangaMetadata: {
+            summary: selectedManga.summary,
+            genres: selectedManga.genres,
+            demographic: selectedManga.demographic,
+            releaseDate: selectedManga.releaseDate,
+            status: selectedManga.status,
+            titleTr: selectedManga.titleTr,
+            titleEn: selectedManga.titleEn,
+            titleJp: selectedManga.titleJp,
+        }
     }));
 
     const concurrency = useParallel ? config.MAX_CHAPTER_CONCURRENCY : 1;
