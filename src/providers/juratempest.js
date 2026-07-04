@@ -31,7 +31,7 @@ class TempestMangasProvider {
         const isLinux = os.platform() === "linux";
         try {
             const { browser } = await connect({
-                headless: false, // Görsel takip için false bırakıldı
+                headless: true,
                 args: ["--no-sandbox", "--disable-setuid-sandbox"],
                 executablePath: isLinux
                     ? "/usr/bin/chromium-browser"
@@ -50,10 +50,16 @@ class TempestMangasProvider {
                             newPage.on("framenavigated", async (frame) => {
                                 if (frame === newPage.mainFrame()) {
                                     const url = newPage.url();
-                                    if (url && !url.includes("juratempe.st") && url !== "about:blank") {
+                                    if (
+                                        url &&
+                                        !url.includes("juratempe.st") &&
+                                        url !== "about:blank"
+                                    ) {
                                         try {
                                             await newPage.close();
-                                            console.log(`[${this.name}] Reklam sekmesi engellendi ve kapatıldı: ${url}`);
+                                            console.log(
+                                                `[${this.name}] Reklam sekmesi engellendi ve kapatıldı: ${url}`,
+                                            );
                                         } catch {
                                             // ignore
                                         }
@@ -62,9 +68,15 @@ class TempestMangasProvider {
                             });
 
                             const url = newPage.url();
-                            if (url && !url.includes("juratempe.st") && url !== "about:blank") {
+                            if (
+                                url &&
+                                !url.includes("juratempe.st") &&
+                                url !== "about:blank"
+                            ) {
                                 await newPage.close();
-                                console.log(`[${this.name}] Reklam sekmesi engellendi ve kapatıldı: ${url}`);
+                                console.log(
+                                    `[${this.name}] Reklam sekmesi engellendi ve kapatıldı: ${url}`,
+                                );
                             }
                         }
                     }
@@ -194,174 +206,50 @@ class TempestMangasProvider {
         let page = null;
         try {
             await this._ensureBrowser();
+
+            const parts = mangaUrl.split("/");
+            const mangaSlug = parts.pop();
+
+            if (!mangaSlug) {
+                throw new Error(`Geçersiz manga URL'i: ${mangaUrl}`);
+            }
+
             page = await this._createNewPage();
 
+            // Sitenin origin bağlamını (CORS için) almak için manga anasayfasına git
             await page.goto(mangaUrl, {
                 waitUntil: "domcontentloaded",
                 timeout: 60000,
             });
 
-            try {
-                await page.waitForSelector("a[data-slot='chapter-row']", {
-                    timeout: 15000,
-                });
-            } catch (e) {
-                const title = await page.title();
-                const bodyText = await page.evaluate(() =>
-                    document.body.innerText.substring(0, 300),
+            const apiResult = await page.evaluate(async (slug) => {
+                const response = await fetch(
+                    "https://juratempe.st/api/rpc/chapter/byMangaSlug",
+                    {
+                        method: "POST",
+                        headers: {
+                            "content-type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            json: {
+                                slug: slug,
+                            },
+                        }),
+                    },
                 );
-                console.warn(
-                    `\n[${this.name}] Bölüm listesi yüklenmesi beklenirken zaman aşımı oluştu. ` +
-                        `Sayfa Başlığı: "${title}". İçerik: "${bodyText.replace(/\n/g, " ").trim()}"\n`,
-                );
-            }
+                return await response.json();
+            }, mangaSlug);
 
-            const allChapters = [];
-            let hasNextPage = true;
-            let safetyCounter = 0;
-            const maxPages = 50;
+            const chaptersList = apiResult?.json || [];
 
-            while (hasNextPage && safetyCounter < maxPages) {
-                safetyCounter++;
+            const chapters = chaptersList.map((ch) => ({
+                title: ch.title || `Bölüm ${ch.slug}`,
+                url: `${mangaUrl}/${ch.slug}`,
+                number: ch.number,
+            }));
 
-                const pageChapters = await page.evaluate((mUrl) => {
-                    const results = [];
-                    const mangaSlug = mUrl.split("/").pop();
-
-                    let links = Array.from(
-                        document.querySelectorAll("a[data-slot='chapter-row']"),
-                    );
-                    if (links.length === 0) {
-                        links = Array.from(document.querySelectorAll("a"));
-                    }
-
-                    for (const link of links) {
-                        const href = link.href;
-                        if (!href) continue;
-
-                        const regex = new RegExp(
-                            `/explore/${mangaSlug}/([^/]+)$`,
-                        );
-                        const match = href.match(regex);
-
-                        if (match) {
-                            const chapterSlug = match[1];
-                            if (
-                                ["edit", "delete", "reviews"].includes(
-                                    chapterSlug,
-                                )
-                            )
-                                continue;
-
-                            const text = link.innerText.trim();
-                            let number = parseFloat(
-                                chapterSlug.replace(/-/g, "."),
-                            );
-                            if (isNaN(number)) {
-                                const numMatch = text.match(/(\d+(\.\d+)?)/);
-                                number = numMatch ? parseFloat(numMatch[1]) : 0;
-                            }
-
-                            results.push({
-                                title: text || `Bölüm ${chapterSlug}`,
-                                url: href,
-                                number: number,
-                            });
-                        }
-                    }
-                    return results;
-                }, mangaUrl);
-
-                allChapters.push(...pageChapters);
-
-                const nextButtonHandle = await page.evaluateHandle(() => {
-                    const allButtons = Array.from(
-                        document.querySelectorAll(
-                            "button[data-slot='button'], a[data-slot='button']",
-                        ),
-                    );
-                    const page1Btn = allButtons.find(
-                        (b) => b.innerText.trim() === "1",
-                    );
-                    if (!page1Btn) return null;
-
-                    const container =
-                        page1Btn.closest("nav") || page1Btn.parentElement;
-                    if (!container) return null;
-
-                    const navButtons = Array.from(
-                        container.querySelectorAll(
-                            "button[data-slot='button'], a[data-slot='button']",
-                        ),
-                    );
-                    if (navButtons.length < 2) return null;
-
-                    const btn = navButtons[navButtons.length - 1];
-
-                    if (
-                        btn &&
-                        btn.innerText.trim() !== "1" &&
-                        !btn.disabled &&
-                        !btn.classList.contains("disabled") &&
-                        btn.getAttribute("aria-disabled") !== "true"
-                    ) {
-                        return btn;
-                    }
-                    return null;
-                });
-
-                const nextButton = nextButtonHandle.asElement();
-                if (nextButton) {
-                    const firstItemBefore = await page.evaluate(() => {
-                        const el = document.querySelector(
-                            "a[data-slot='chapter-row']",
-                        );
-                        return el ? el.href : null;
-                    });
-
-                    await nextButton.click();
-                    await nextButtonHandle.dispose();
-
-                    let loaded = false;
-                    for (let check = 0; check < 30; check++) {
-                        await new Promise((resolve) =>
-                            setTimeout(resolve, 200),
-                        );
-                        const firstItemAfter = await page.evaluate(() => {
-                            const el = document.querySelector(
-                                "a[data-slot='chapter-row']",
-                            );
-                            return el ? el.href : null;
-                        });
-
-                        if (
-                            firstItemAfter &&
-                            firstItemAfter !== firstItemBefore
-                        ) {
-                            loaded = true;
-                            break;
-                        }
-                    }
-
-                    if (!loaded) {
-                        hasNextPage = false;
-                    }
-                } else {
-                    await nextButtonHandle.dispose();
-                    hasNextPage = false;
-                }
-            }
-
-            const uniqueChapters = [];
-            const seenUrls = new Set();
-            for (const ch of allChapters) {
-                if (!seenUrls.has(ch.url)) {
-                    seenUrls.add(ch.url);
-                    uniqueChapters.push(ch);
-                }
-            }
-
-            return uniqueChapters.sort((a, b) => a.number - b.number);
+            // Küçükten büyüğe sırala (1, 2, 3...)
+            return chapters.sort((a, b) => a.number - b.number);
         } catch (error) {
             console.error(`[${this.name}] Bölüm alma hatası: ${error.message}`);
             return [];

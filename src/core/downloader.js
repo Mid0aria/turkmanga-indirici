@@ -52,6 +52,24 @@ const createComicInfoXml = (metadata) => {
 </ComicInfo>`;
 };
 
+// YENİ FONKSİYON: ComicInfo içindeki başlığın tekrarlanmasını önlemek için temizleme yapar
+const cleanChapterTitle = (title, number) => {
+    if (!title) return "";
+    let clean = title.trim();
+    
+    // "Bölüm X", "Bölüm X:", "Bölüm X -" öneklerini temizle
+    const numStr = String(number);
+    const prefixRegex = new RegExp(`^Bölüm\\s+${numStr.replace(".", "\\.")}\\s*[-–—:]*\\s*`, "i");
+    clean = clean.replace(prefixRegex, "");
+    
+    // Eğer geriye kalan başlık sadece bölüm numarasıyla eşleşiyorsa veya boşsa başlığı boş döndür
+    if (clean.toLowerCase() === `bölüm ${numStr}`.toLowerCase() || clean === "" || clean === numStr) {
+        return "";
+    }
+    
+    return clean;
+};
+
 const downloadImage = async (url, filePath, headers) => {
     try {
         const response = await axios.get(url, {
@@ -148,7 +166,7 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
 
         const metadata = {
             series: chapterInfo.mangaTitle,
-            title: chapter.title,
+            title: cleanChapterTitle(chapter.title, chapter.number),
             number: chapter.number,
             web: chapter.url,
             pageCount: imageUrls.length,
