@@ -228,114 +228,142 @@ class MangaTrProvider {
     }
 
     async getChapters(mangaUrl) {
+        let page = null;
         try {
-            if (!this.cookieString) {
-                await this._ensureBrowser();
-            }
+            await this._ensureBrowser();
 
-            const detailResponse = await axios.get(mangaUrl, {
-                headers: {
-                    cookie: this.cookieString,
-                    "user-agent": this.userAgent,
-                    referer: `${this.baseUrl}/`,
-                },
+            page = await this._createNewPage();
+            await page.goto(mangaUrl, {
+                waitUntil: "domcontentloaded",
+                timeout: 60000,
             });
 
-            const htmlContent = detailResponse.data;
-            const keyMatch = htmlContent.match(
-                /const initialChapterListKey = '([^']+)';/,
-            );
-
-            if (!keyMatch || !keyMatch[1]) {
-                throw new Error("initialChapterListKey bulunamadı.");
-            }
-
-            const initialChapterListKey = keyMatch[1];
-
-            let offset = 0;
-            const limit = 100;
-            const chapters = [];
-            let hasMore = true;
-
-            while (hasMore) {
-                const chaptersPostResponse = await axios.post(
-                    `${this.baseUrl}/cek/fetch_pages_manga.php`,
-                    new URLSearchParams({
-                        chapter_list_key: initialChapterListKey,
-                        offset: String(offset),
-                    }),
-                    {
-                        headers: {
-                            cookie: this.cookieString,
-                            "user-agent": this.userAgent,
-                            referer: mangaUrl,
-                            origin: this.baseUrl,
-                            "x-requested-with": "XMLHttpRequest",
-                            accept: "*/*",
-                            "accept-language":
-                                "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-                            "content-type": "application/x-www-form-urlencoded",
-                        },
-                    },
-                );
-
-                const htmlData = chaptersPostResponse.data;
-                if (!htmlData || htmlData.trim() === "") {
-                    hasMore = false;
+            for (let attempt = 0; attempt < 30; attempt++) {
+                const pageTitle = await page.title();
+                if (
+                    pageTitle &&
+                    !pageTitle.includes("Siteye Bağlanılıyor") &&
+                    !pageTitle.includes("DDoS-Guard")
+                ) {
                     break;
                 }
-
-                const $cList = cheerio.load(htmlData);
-                const pageChaptersCountBefore = chapters.length;
-
-                $cList("a").each((i, el) => {
-                    const text = $cList(el).text().trim();
-                    const href = $cList(el).attr("href") || "";
-
-                    if (
-                        href.includes("-read-") &&
-                        !text.toLowerCase().includes("ilk bölüm") &&
-                        !text.toLowerCase().includes("son bölüm")
-                    ) {
-                        const numberMatch = text.match(/(\d+(\.\d+)?)/);
-                        const number = numberMatch
-                            ? parseFloat(numberMatch[1])
-                            : i;
-
-                        const chapterUrl = href.startsWith("http")
-                            ? href
-                            : `${this.baseUrl}/${href.startsWith("/") ? href.substring(1) : href}`;
-
-                        chapters.push({
-                            title: text,
-                            url: chapterUrl,
-                            number: number,
-                        });
-                    }
-                });
-
-                const newChaptersFound =
-                    chapters.length - pageChaptersCountBefore;
-                if (newChaptersFound === 0) {
-                    hasMore = false;
-                } else {
-                    if (offset === 0) {
-                        offset = 20;
-                    } else {
-                        offset += limit;
-                    }
-                }
+                await new Promise((resolve) => setTimeout(resolve, 500));
             }
 
-            const uniqueChapters = [];
+            const pageData = await page.evaluate(async (baseUrl) => {
+                const htmlContent = document.documentElement.outerHTML;
+                const keyMatch = htmlContent.match(
+                    /const initialChapterListKey = '([^']+)';/,
+                );
+
+                if (!keyMatch || !keyMatch[1]) {
+                    return { error: "initialChapterListKey bulunamadı." };
+                }
+
+                const initialChapterListKey = keyMatch[1];
+                let offset = 0;
+                const limit = 100;
+                const rawChapters = [];
+                let hasMore = true;
+
+                while (hasMore) {
+                    try {
+                        const response = await fetch(
+                            `${baseUrl}/cek/fetch_pages_manga.php`,
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type":
+                                        "application/x-www-form-urlencoded",
+                                    "X-Requested-With": "XMLHttpRequest",
+                                },
+                                body: new URLSearchParams({
+                                    chapter_list_key: initialChapterListKey,
+                                    offset: String(offset),
+                                }).toString(),
+                            },
+                        );
+
+                        const htmlData = await response.text();
+                        if (!htmlData || htmlData.trim() === "") {
+                            hasMore = false;
+                            break;
+                        }
+
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(
+                            htmlData,
+                            "text/html",
+                        );
+                        const links = Array.from(doc.querySelectorAll("a"));
+                        const pageChaptersCountBefore = rawChapters.length;
+
+                        links.forEach((el, i) => {
+                            const text = el.textContent
+                                ? el.textContent.trim()
+                                : "";
+                            const href = el.getAttribute("href") || "";
+
+                            if (
+                                href.includes("-read-") &&
+                                !text.toLowerCase().includes("ilk bölüm") &&
+                                !text.toLowerCase().includes("son bölüm")
+                            ) {
+                                const numberMatch = text.match(/(\d+(\.\d+)?)/);
+                                const number = numberMatch
+                                    ? parseFloat(numberMatch[1])
+                                    : i;
+
+                                const chapterUrl = href.startsWith("http")
+                                    ? href
+                                    : `${baseUrl}/${href.startsWith("/") ? href.substring(1) : href}`;
+
+                                rawChapters.push({
+                                    title: text,
+                                    url: chapterUrl,
+                                    number: number,
+                                });
+                            }
+                        });
+
+                        const newChaptersFound =
+                            rawChapters.length - pageChaptersCountBefore;
+                        if (newChaptersFound === 0) {
+                            hasMore = false;
+                        } else {
+                            if (offset === 0) {
+                                offset = 20;
+                            } else {
+                                offset += limit;
+                            }
+                        }
+                    } catch (e) {
+                        return {
+                            error: `Bölümler fetch edilirken hata oluştu: ${e.message}`,
+                        };
+                    }
+                }
+
+                return {
+                    htmlContent,
+                    rawChapters,
+                };
+            }, this.baseUrl);
+
+            if (pageData.error) {
+                throw new Error(pageData.error);
+            }
+
+            const { htmlContent, rawChapters } = pageData;
+            const chapters = [];
             const seenUrls = new Set();
 
-            chapters
+            rawChapters
                 .sort((a, b) => a.number - b.number)
                 .forEach((ch) => {
                     if (!seenUrls.has(ch.url)) {
                         seenUrls.add(ch.url);
-                        uniqueChapters.push(ch);
+                        chapters.push(ch);
                     }
                 });
 
@@ -354,7 +382,7 @@ class MangaTrProvider {
                         releaseDate = `${yearMatch[1]}-01-01`;
                     }
 
-                    uniqueChapters.metadata = {
+                    chapters.metadata = {
                         summary: jsonLd.description || "",
                         genres: Array.isArray(jsonLd.genre)
                             ? jsonLd.genre.join(", ")
@@ -368,12 +396,20 @@ class MangaTrProvider {
                 // ignore
             }
 
-            return uniqueChapters;
+            return chapters;
         } catch (error) {
             console.error(
                 `[${this.name}] Bölüm çekme hatası: ${error.message}`,
             );
             return [];
+        } finally {
+            if (page) {
+                try {
+                    await page.close();
+                } catch {
+                    // ignore
+                }
+            }
         }
     }
 

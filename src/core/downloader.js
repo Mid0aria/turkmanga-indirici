@@ -141,7 +141,7 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
                 `${String(i + 1).padStart(3, "0")}${ext}`,
             );
             const headers = provider.getDownloadHeaders
-                ? provider.getDownloadHeaders()
+                ? provider.getDownloadHeaders(chapter.url)
                 : {};
 
             await downloadImage(url, imagePath, headers);
@@ -231,7 +231,7 @@ const downloadChapters = async (
             if (!fs.existsSync(coverPath)) {
                 logger.info("Kapak resmi indiriliyor: cover.png");
                 const headers = provider.getDownloadHeaders
-                    ? provider.getDownloadHeaders()
+                    ? provider.getDownloadHeaders(selectedManga.url)
                     : {};
                 await downloadImage(
                     selectedManga.coverImageUrl,
