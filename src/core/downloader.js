@@ -75,9 +75,7 @@ const downloadImage = async (url, filePath, headers) => {
 };
 
 const downloadSingleChapter = async (chapterInfo, provider) => {
-    const { chapter, mangaDir, safeMangaName, index, total } = chapterInfo;
-    const numberString = String(chapter.number).padStart(3, "0");
-    const chapterFileName = `${safeMangaName}-${numberString}`;
+    const { chapter, mangaDir, chapterFileName, index, total } = chapterInfo;
     const chapterDir = path.join(mangaDir, chapterFileName);
     const cbzPath = path.join(mangaDir, `${chapterFileName}.cbz`);
 
@@ -200,24 +198,41 @@ const downloadChapters = async (
     logger.info(`Bölümler: ${chapters.length} adet`);
     logger.info(`Konum: ${mangaDir}\n`);
 
-    const chapterQueue = chapters.map((chapter, index) => ({
-        chapter,
-        mangaDir,
-        safeMangaName,
-        index,
-        total: chapters.length,
-        mangaTitle: selectedManga.title,
-        mangaMetadata: {
-            summary: selectedManga.summary,
-            genres: selectedManga.genres,
-            demographic: selectedManga.demographic,
-            releaseDate: selectedManga.releaseDate,
-            status: selectedManga.status,
-            titleTr: selectedManga.titleTr,
-            titleEn: selectedManga.titleEn,
-            titleJp: selectedManga.titleJp,
+    const seenFileNames = new Set();
+    const chapterQueue = chapters.map((chapter, index) => {
+        const parts = String(chapter.number).split(".");
+        const integerPart = parts[0].padStart(3, "0");
+        const numberString = parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
+        const baseFileName = `${safeMangaName}-${numberString}`;
+        let uniqueFileName = baseFileName;
+        let counter = 1;
+        
+        while (seenFileNames.has(uniqueFileName)) {
+            counter++;
+            uniqueFileName = `${baseFileName}_${counter}`;
         }
-    }));
+        seenFileNames.add(uniqueFileName);
+
+        return {
+            chapter,
+            mangaDir,
+            safeMangaName,
+            chapterFileName: uniqueFileName,
+            index,
+            total: chapters.length,
+            mangaTitle: selectedManga.title,
+            mangaMetadata: {
+                summary: selectedManga.summary,
+                genres: selectedManga.genres,
+                demographic: selectedManga.demographic,
+                releaseDate: selectedManga.releaseDate,
+                status: selectedManga.status,
+                titleTr: selectedManga.titleTr,
+                titleEn: selectedManga.titleEn,
+                titleJp: selectedManga.titleJp,
+            }
+        };
+    });
 
     const concurrency = useParallel ? config.MAX_CHAPTER_CONCURRENCY : 1;
 

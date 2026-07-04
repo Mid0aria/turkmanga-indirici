@@ -253,7 +253,9 @@ class TempestMangasProvider {
                                 continue;
 
                             const text = link.innerText.trim();
-                            let number = parseFloat(chapterSlug);
+                            let number = parseFloat(
+                                chapterSlug.replace(/-/g, "."),
+                            );
                             if (isNaN(number)) {
                                 const numMatch = text.match(/(\d+(\.\d+)?)/);
                                 number = numMatch ? parseFloat(numMatch[1]) : 0;
