@@ -53,6 +53,9 @@ class App {
                 `"${selectedManga.title}" için bölümler getiriliyor...`,
             );
             const allChapters = await provider.getChapters(selectedManga.url);
+            if (allChapters.metadata) {
+                Object.assign(selectedManga, allChapters.metadata);
+            }
 
             if (allChapters.length === 0) {
                 logger.error("Bu manga için bölüm bulunamadı.");

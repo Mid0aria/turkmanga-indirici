@@ -56,17 +56,24 @@ const createComicInfoXml = (metadata) => {
 const cleanChapterTitle = (title, number) => {
     if (!title) return "";
     let clean = title.trim();
-    
+
     // "Bölüm X", "Bölüm X:", "Bölüm X -" öneklerini temizle
     const numStr = String(number);
-    const prefixRegex = new RegExp(`^Bölüm\\s+${numStr.replace(".", "\\.")}\\s*[-–—:]*\\s*`, "i");
+    const prefixRegex = new RegExp(
+        `^Bölüm\\s+${numStr.replace(".", "\\.")}\\s*[-–—:]*\\s*`,
+        "i",
+    );
     clean = clean.replace(prefixRegex, "");
-    
+
     // Eğer geriye kalan başlık sadece bölüm numarasıyla eşleşiyorsa veya boşsa başlığı boş döndür
-    if (clean.toLowerCase() === `bölüm ${numStr}`.toLowerCase() || clean === "" || clean === numStr) {
+    if (
+        clean.toLowerCase() === `bölüm ${numStr}`.toLowerCase() ||
+        clean === "" ||
+        clean === numStr
+    ) {
         return "";
     }
-    
+
     return clean;
 };
 
@@ -125,7 +132,10 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
         });
 
         const imageTasks = imageUrls.map((url, i) => async () => {
-            const ext = path.extname(new URL(url).pathname) || ".jpg";
+            let ext = path.extname(new URL(url).pathname) || ".jpg";
+            if (ext.toLowerCase() === ".php") {
+                ext = ".png";
+            }
             const imagePath = path.join(
                 chapterDir,
                 `${String(i + 1).padStart(3, "0")}${ext}`,
@@ -135,6 +145,9 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
                 : {};
 
             await downloadImage(url, imagePath, headers);
+            if (typeof provider.scrambleResolver === "function") {
+                await provider.scrambleResolver(imagePath, i, chapter.url);
+            }
         });
 
         for (let i = 0; i < imageTasks.length; i++) {
@@ -147,7 +160,7 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
 
         // DEĞİŞİKLİK: Metadata oluşturma ve yazma adımı
         chapterBar.update(75, { status: "Metadata oluşturuluyor..." });
-        
+
         let year = "";
         let month = "";
         let day = "";
@@ -159,7 +172,7 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
                     month = String(date.getMonth() + 1);
                     day = String(date.getDate());
                 }
-            } catch (e) {
+            } catch {
                 // ignore
             }
         }
@@ -176,7 +189,7 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
             year,
             month,
             day,
-            manga: "Yes"
+            manga: "Yes",
         };
         const xmlContent = createComicInfoXml(metadata);
         const xmlPath = path.join(chapterDir, "ComicInfo.xml");
@@ -240,11 +253,12 @@ const downloadChapters = async (
     const chapterQueue = chapters.map((chapter, index) => {
         const parts = String(chapter.number).split(".");
         const integerPart = parts[0].padStart(3, "0");
-        const numberString = parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
+        const numberString =
+            parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
         const baseFileName = `${safeMangaName}-${numberString}`;
         let uniqueFileName = baseFileName;
         let counter = 1;
-        
+
         while (seenFileNames.has(uniqueFileName)) {
             counter++;
             uniqueFileName = `${baseFileName}_${counter}`;
@@ -268,7 +282,7 @@ const downloadChapters = async (
                 titleTr: selectedManga.titleTr,
                 titleEn: selectedManga.titleEn,
                 titleJp: selectedManga.titleJp,
-            }
+            },
         };
     });
 
