@@ -180,6 +180,7 @@ class TempestMangasProvider {
                     demographic: manga.demographic,
                     releaseDate: manga.releaseDate,
                     status: manga.seriesStatus,
+                    coverImageUrl: manga.coverImageUrl,
                 }));
             }
             return [];

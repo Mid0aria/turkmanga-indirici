@@ -193,6 +193,29 @@ const downloadChapters = async (
     const mangaDir = path.join(downloadDir, safeMangaName);
     if (!fs.existsSync(mangaDir)) fs.mkdirSync(mangaDir, { recursive: true });
 
+    // Manga kapak resmini (poster) indir
+    if (selectedManga.coverImageUrl) {
+        try {
+            const ext =
+                path.extname(new URL(selectedManga.coverImageUrl).pathname) ||
+                ".jpg";
+            const coverPath = path.join(mangaDir, `cover${ext}`);
+            if (!fs.existsSync(coverPath)) {
+                logger.info(`Kapak resmi indiriliyor: cover${ext}`);
+                const headers = provider.getDownloadHeaders
+                    ? provider.getDownloadHeaders()
+                    : {};
+                await downloadImage(
+                    selectedManga.coverImageUrl,
+                    coverPath,
+                    headers,
+                );
+            }
+        } catch (err) {
+            logger.warn(`Kapak resmi indirilemedi: ${err.message}`);
+        }
+    }
+
     logger.header("İNDİRME BAŞLIYOR");
     logger.info(`Manga: ${selectedManga.title}`);
     logger.info(`Bölümler: ${chapters.length} adet`);
