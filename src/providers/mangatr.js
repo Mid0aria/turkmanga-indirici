@@ -414,111 +414,129 @@ class MangaTrProvider {
     }
 
     async getChapterImages(chapterUrl) {
-        let page = null;
-        try {
-            await this._ensureBrowser();
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            let page = null;
+            try {
+                await this._ensureBrowser();
 
-            page = await this._createNewPage();
-            await page.goto(chapterUrl, {
-                waitUntil: "domcontentloaded",
-                timeout: 60000,
-            });
+                page = await this._createNewPage();
+                await page.goto(chapterUrl, {
+                    waitUntil: "domcontentloaded",
+                    timeout: 60000,
+                });
 
-            for (let attempt = 0; attempt < 30; attempt++) {
-                const chapterTitle = await page.title();
-                if (
-                    chapterTitle &&
-                    !chapterTitle.includes("Siteye Bağlanılıyor") &&
-                    !chapterTitle.includes("DDoS-Guard")
-                ) {
-                    break;
-                }
-                await new Promise((resolve) => setTimeout(resolve, 500));
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-
-            const result = await page.evaluate(() => {
-                let pageAttr = "";
-                const allElements = Array.from(document.querySelectorAll("*"));
-                for (const el of allElements) {
-                    const attrs = el.attributes;
-                    for (let i = 0; i < attrs.length; i++) {
-                        const name = attrs[i].name;
-                        if (
-                            name.startsWith("data-") &&
-                            attrs[i].value === "0"
-                        ) {
-                            pageAttr = name;
-                            break;
-                        }
+                for (let t = 0; t < 30; t++) {
+                    const chapterTitle = await page.title();
+                    if (
+                        chapterTitle &&
+                        !chapterTitle.includes("Siteye Bağlanılıyor") &&
+                        !chapterTitle.includes("DDoS-Guard")
+                    ) {
+                        break;
                     }
-                    if (pageAttr) break;
+                    await new Promise((resolve) => setTimeout(resolve, 500));
                 }
 
-                if (!pageAttr)
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+
+                const result = await page.evaluate(() => {
+                    let pageAttr = "";
+                    const allElements = Array.from(
+                        document.querySelectorAll("*"),
+                    );
+                    for (const el of allElements) {
+                        const attrs = el.attributes;
+                        for (let i = 0; i < attrs.length; i++) {
+                            const name = attrs[i].name;
+                            if (
+                                name.startsWith("data-") &&
+                                attrs[i].value === "0"
+                            ) {
+                                pageAttr = name;
+                                break;
+                            }
+                        }
+                        if (pageAttr) break;
+                    }
+
+                    if (!pageAttr)
+                        return {
+                            error: "Sayfa indeksini tutan dinamik data-* özniteliği bulunamadı.",
+                        };
+
+                    const containers = Array.from(
+                        document.querySelectorAll(`div[${pageAttr}]`),
+                    );
+                    containers.sort((a, b) => {
+                        const idxA = parseInt(
+                            a.getAttribute(pageAttr) || "0",
+                            10,
+                        );
+                        const idxB = parseInt(
+                            b.getAttribute(pageAttr) || "0",
+                            10,
+                        );
+                        return idxA - idxB;
+                    });
+
+                    const bgImages = [];
+                    const containerHtmls = [];
+
+                    containers.forEach((container) => {
+                        let imgUrl = "";
+                        const divs = Array.from(
+                            container.querySelectorAll("div"),
+                        );
+                        for (const div of divs) {
+                            const bg = div.style.backgroundImage;
+                            if (bg && bg.includes("img_part.php")) {
+                                imgUrl = bg
+                                    .replace(/url\(["']?|["']?\)/g, "")
+                                    .trim();
+                                break;
+                            }
+                        }
+
+                        if (imgUrl) {
+                            bgImages.push(imgUrl);
+                            containerHtmls.push(container.outerHTML);
+                        }
+                    });
+
                     return {
-                        error: "Sayfa indeksini tutan dinamik data-* özniteliği bulunamadı.",
+                        bgImages,
+                        containerHtmls,
                     };
+                });
 
-                const containers = Array.from(
-                    document.querySelectorAll(`div[${pageAttr}]`),
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                if (!this.cachedContainersMap)
+                    this.cachedContainersMap = new Map();
+                this.cachedContainersMap.set(
+                    chapterUrl,
+                    result.containerHtmls || [],
                 );
-                containers.sort((a, b) => {
-                    const idxA = parseInt(a.getAttribute(pageAttr) || "0", 10);
-                    const idxB = parseInt(b.getAttribute(pageAttr) || "0", 10);
-                    return idxA - idxB;
-                });
-
-                const bgImages = [];
-                const containerHtmls = [];
-
-                containers.forEach((container) => {
-                    let imgUrl = "";
-                    const divs = Array.from(container.querySelectorAll("div"));
-                    for (const div of divs) {
-                        const bg = div.style.backgroundImage;
-                        if (bg && bg.includes("img_part.php")) {
-                            imgUrl = bg
-                                .replace(/url\(["']?|["']?\)/g, "")
-                                .trim();
-                            break;
-                        }
+                return result.bgImages || [];
+            } catch (err) {
+                lastError = err;
+                await new Promise((resolve) =>
+                    setTimeout(resolve, attempt * 1000 + Math.random() * 1000),
+                );
+            } finally {
+                if (page) {
+                    try {
+                        await page.close();
+                    } catch {
+                        // ignore
                     }
-
-                    if (imgUrl) {
-                        bgImages.push(imgUrl);
-                        containerHtmls.push(container.outerHTML);
-                    }
-                });
-
-                return {
-                    bgImages,
-                    containerHtmls,
-                };
-            });
-
-            if (result.error) {
-                throw new Error(result.error);
-            }
-
-            if (!this.cachedContainersMap) this.cachedContainersMap = new Map();
-            this.cachedContainersMap.set(
-                chapterUrl,
-                result.containerHtmls || [],
-            );
-            return result.bgImages || [];
-        } catch {
-            return [];
-        } finally {
-            if (page) {
-                try {
-                    await page.close();
-                } catch {
-                    // ignore
                 }
             }
         }
+        return [];
     }
 
     async scrambleResolver(imagePath, index, chapterUrl) {
