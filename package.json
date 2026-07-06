@@ -3,10 +3,13 @@
     "version": "1.0.0",
     "description": "A modern CLI for downloading turkish manga.",
     "main": "index.js",
-    "type": "commonjs",
+    "type": "module",
     "scripts": {
-        "start": "node index.js",
-        "format": "prettier --write ."
+        "start": "tsx index.ts",
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
     },
     "keywords": [
         "manga",
@@ -21,16 +24,25 @@
         "cheerio": "^1.1.2",
         "cli-progress": "^3.12.0",
         "fs-extra": "^11.3.1",
+        "ink": "^7.1.0",
+        "ink-spinner": "^5.0.0",
         "inquirer": "^12.9.3",
         "node-file-dialog": "^1.0.3",
         "puppeteer-real-browser": "^1.4.3",
+        "react": "^19.2.7",
         "sharp": "^0.33.5",
         "simple-git": "^3.28.0"
     },
     "devDependencies": {
         "@eslint/js": "^9.34.0",
+        "@types/node": "^26.1.0",
+        "@types/react": "^19.2.17",
         "eslint": "^9.34.0",
         "globals": "^16.3.0",
-        "prettier": "^3.6.2"
+        "prettier": "^3.9.4",
+        "prettier-plugin-organize-imports": "^4.3.0",
+        "tsx": "^4.23.0",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.62.1"
     }
 }

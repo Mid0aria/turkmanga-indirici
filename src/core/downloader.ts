@@ -1,13 +1,13 @@
-const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
-const config = require("../config");
-const { createSafeFileName, createCBZ } = require("../utils/fileUtils");
-const { multibar, createBar } = require("../ui/progressBar");
-const logger = require("../ui/logger");
+import config from "@/config";
+import { Chapter, Manga, MangaProvider } from "@/types";
+import logger from "@/ui/logger";
+import { createBar, multibar } from "@/ui/progressBar";
+import { createCBZ, createSafeFileName } from "@/utils/fileUtils";
+import axios from "axios";
+import fs from "fs";
+import path from "path";
 
-// YENİ FONKSİYON: XML içindeki özel karakterlerden kaçınmak için
-const escapeXml = (unsafe) => {
+const escapeXml = (unsafe: string): string => {
     if (typeof unsafe !== "string") return unsafe;
     return unsafe.replace(/[<>&'"]/g, (c) => {
         switch (c) {
@@ -21,17 +21,33 @@ const escapeXml = (unsafe) => {
                 return "&apos;";
             case '"':
                 return "&quot;";
+            default:
+                return c;
         }
     });
 };
 
-// YENİ FONKSİYON: ComicInfo.xml içeriğini oluşturur
-const createComicInfoXml = (metadata) => {
+interface ComicInfoMetadata {
+    series: string;
+    title: string;
+    number: number;
+    web: string;
+    pageCount: number;
+    provider: string;
+    genre: string;
+    summary: string;
+    year: string;
+    month: string;
+    day: string;
+    manga: string;
+}
+
+const createComicInfoXml = (metadata: ComicInfoMetadata): string => {
     return `<?xml version="1.0" encoding="utf-8"?>
 <ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Series>${escapeXml(metadata.series)}</Series>
   <Title>${escapeXml(metadata.title)}</Title>
-  <Number>${escapeXml(metadata.number)}</Number>
+  <Number>${escapeXml(String(metadata.number))}</Number>
   <Web>${escapeXml(metadata.web)}</Web>
   <PageCount>${metadata.pageCount}</PageCount>
   <ScanInformation>${escapeXml(metadata.provider)}</ScanInformation>
@@ -52,20 +68,14 @@ const createComicInfoXml = (metadata) => {
 </ComicInfo>`;
 };
 
-// YENİ FONKSİYON: ComicInfo içindeki başlığın tekrarlanmasını önlemek için temizleme yapar
-const cleanChapterTitle = (title, number) => {
+const cleanChapterTitle = (title: string, number: number): string => {
     if (!title) return "";
     let clean = title.trim();
 
-    // "Bölüm X", "Bölüm X:", "Bölüm X -" öneklerini temizle
     const numStr = String(number);
-    const prefixRegex = new RegExp(
-        `^Bölüm\\s+${numStr.replace(".", "\\.")}\\s*[-–—:]*\\s*`,
-        "i",
-    );
+    const prefixRegex = new RegExp(`^Bölüm\\s+${numStr.replace(".", "\\.")}\\s*[-–—:]*\\s*`, "i");
     clean = clean.replace(prefixRegex, "");
 
-    // Eğer geriye kalan başlık sadece bölüm numarasıyla eşleşiyorsa veya boşsa başlığı boş döndür
     if (
         clean.toLowerCase() === `bölüm ${numStr}`.toLowerCase() ||
         clean === "" ||
@@ -77,11 +87,33 @@ const cleanChapterTitle = (title, number) => {
     return clean;
 };
 
-const downloadImage = async (url, filePath, headers) => {
+let globalBytesDownloaded = 0;
+let lastSpeedCalcTime = Date.now();
+let lastSpeedValue = 0;
+
+export const getDownloadSpeed = (): number => {
+    const now = Date.now();
+    const diffSec = (now - lastSpeedCalcTime) / 1000;
+    if (diffSec >= 0.5) {
+        lastSpeedValue = globalBytesDownloaded / diffSec;
+        globalBytesDownloaded = 0;
+        lastSpeedCalcTime = now;
+    }
+    return lastSpeedValue;
+};
+
+const downloadImage = async (
+    url: string,
+    filePath: string,
+    headers: Record<string, string>,
+): Promise<void> => {
     try {
         const response = await axios.get(url, {
             responseType: "stream",
             headers,
+        });
+        response.data.on("data", (chunk: Buffer) => {
+            globalBytesDownloaded += chunk.length;
         });
         const writer = fs.createWriteStream(filePath);
         response.data.pipe(writer);
@@ -89,57 +121,93 @@ const downloadImage = async (url, filePath, headers) => {
             writer.on("finish", resolve);
             writer.on("error", reject);
         });
-    } catch (e) {
+    } catch (e: unknown) {
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
         }
-        throw new Error(
-            `Resim indirilemedi: ${e.message} |${url.substring(0, 60)}...`,
-        );
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        throw new Error(`Resim indirilemedi: ${errorMsg} |${url.substring(0, 60)}...`);
     }
 };
 
-const downloadSingleChapter = async (chapterInfo, provider) => {
+export interface ProgressState {
+    filename: string;
+    value: number;
+    total: number;
+    status: string;
+}
+
+interface ChapterQueueItem {
+    chapter: Chapter;
+    mangaDir: string;
+    safeMangaName: string;
+    chapterFileName: string;
+    index: number;
+    total: number;
+    mangaTitle: string;
+    mangaMetadata: Partial<Manga>;
+}
+
+const downloadSingleChapter = async (
+    chapterInfo: ChapterQueueItem,
+    provider: MangaProvider,
+    onProgress?: (filename: string, progress: ProgressState) => void,
+): Promise<void> => {
     const { chapter, mangaDir, chapterFileName, index, total } = chapterInfo;
     const chapterDir = path.join(mangaDir, chapterFileName);
     const cbzPath = path.join(mangaDir, `${chapterFileName}.cbz`);
+    const filename = `${chapterFileName}.cbz`;
+
+    const updateProgress = (value: number, status: string) => {
+        if (onProgress) {
+            onProgress(filename, { filename, value, total: 100, status });
+        } else {
+            chapterBar?.update(value, { status });
+        }
+    };
 
     if (fs.existsSync(cbzPath)) {
-        logger.warn(
-            `[${index + 1}/${total}] ${chapter.title} zaten mevcut, atlanıyor.`,
-        );
+        if (onProgress) {
+            onProgress(filename, {
+                filename,
+                value: 100,
+                total: 100,
+                status: "Zaten mevcut, atlandı.",
+            });
+        } else {
+            logger.warn(`[${index + 1}/${total}] ${chapter.title} zaten mevcut, atlanıyor.`);
+        }
         return;
     }
 
-    const chapterBar = createBar(100, {
-        filename: `${chapterFileName}.cbz`,
-        status: "Başlatılıyor...",
-    });
+    let chapterBar: ReturnType<typeof createBar> | null = null;
+    if (!onProgress) {
+        chapterBar = createBar(100, {
+            filename,
+            status: "Başlatılıyor...",
+        });
+    } else {
+        updateProgress(0, "Başlatılıyor...");
+    }
 
     try {
-        if (!fs.existsSync(chapterDir))
-            fs.mkdirSync(chapterDir, { recursive: true });
+        if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
 
-        chapterBar.update(5, { status: "Resim linkleri alınıyor..." });
+        updateProgress(5, "Resim linkleri alınıyor...");
         const imageUrls = await provider.getChapterImages(chapter.url);
         if (imageUrls.length === 0) {
-            chapterBar.update(100, { status: "Resim Yok!" });
+            updateProgress(100, "Resim Yok!");
             return;
         }
 
-        chapterBar.update(15, {
-            status: `${imageUrls.length} resim indiriliyor...`,
-        });
+        updateProgress(15, `${imageUrls.length} resim indiriliyor...`);
 
         const imageTasks = imageUrls.map((url, i) => async () => {
             let ext = path.extname(new URL(url).pathname) || ".jpg";
             if (ext.toLowerCase() === ".php") {
                 ext = ".png";
             }
-            const imagePath = path.join(
-                chapterDir,
-                `${String(i + 1).padStart(3, "0")}${ext}`,
-            );
+            const imagePath = path.join(chapterDir, `${String(i + 1).padStart(3, "0")}${ext}`);
             const headers = provider.getDownloadHeaders
                 ? provider.getDownloadHeaders(chapter.url)
                 : {};
@@ -152,14 +220,13 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
 
         for (let i = 0; i < imageTasks.length; i++) {
             await imageTasks[i]();
-            // İlerleme çubuğunu resim indirme aşaması için %15 ile %70 arasına yayalım
-            chapterBar.update(
+            updateProgress(
                 15 + Math.floor(((i + 1) / imageTasks.length) * 55),
+                `${imageUrls.length} resimden ${i + 1} tanesi indirildi...`,
             );
         }
 
-        // DEĞİŞİKLİK: Metadata oluşturma ve yazma adımı
-        chapterBar.update(75, { status: "Metadata oluşturuluyor..." });
+        updateProgress(75, "Metadata oluşturuluyor...");
 
         let year = "";
         let month = "";
@@ -177,7 +244,7 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
             }
         }
 
-        const metadata = {
+        const metadata: ComicInfoMetadata = {
             series: chapterInfo.mangaTitle,
             title: cleanChapterTitle(chapter.title, chapter.number),
             number: chapter.number,
@@ -194,67 +261,63 @@ const downloadSingleChapter = async (chapterInfo, provider) => {
         const xmlContent = createComicInfoXml(metadata);
         const xmlPath = path.join(chapterDir, "ComicInfo.xml");
         fs.writeFileSync(xmlPath, xmlContent);
-        // BİTİŞ
 
-        chapterBar.update(85, { status: "CBZ oluşturuluyor..." });
+        updateProgress(85, "CBZ oluşturuluyor...");
         await createCBZ(chapterDir, cbzPath);
 
-        chapterBar.update(95, { status: "Temizlik yapılıyor..." });
+        updateProgress(95, "Temizlik yapılıyor...");
         fs.rmSync(chapterDir, { recursive: true, force: true });
 
-        chapterBar.update(100, { status: "Tamamlandı!" });
-    } catch (error) {
-        chapterBar.update(100, {
-            status: `Hata: ${error.message.substring(0, 30)}`,
-        });
+        updateProgress(100, "Tamamlandı!");
+    } catch (error: unknown) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        updateProgress(100, `Hata: ${errorMsg.substring(0, 30)}`);
         if (fs.existsSync(chapterDir)) {
             fs.rmSync(chapterDir, { recursive: true, force: true });
         }
     }
 };
 
-const downloadChapters = async (
-    chapters,
-    selectedManga,
-    provider,
-    useParallel,
-    downloadDir,
-) => {
+export const downloadChapters = async (
+    chapters: Chapter[],
+    selectedManga: Manga,
+    provider: MangaProvider,
+    useParallel: boolean,
+    downloadDir: string,
+    onProgress?: (filename: string, progress: ProgressState) => void,
+): Promise<void> => {
     const safeMangaName = createSafeFileName(selectedManga.title);
     const mangaDir = path.join(downloadDir, safeMangaName);
     if (!fs.existsSync(mangaDir)) fs.mkdirSync(mangaDir, { recursive: true });
 
-    // Manga kapak resmini (poster) indir
     if (selectedManga.coverImageUrl) {
         try {
             const coverPath = path.join(mangaDir, "cover.png");
             if (!fs.existsSync(coverPath)) {
-                logger.info("Kapak resmi indiriliyor: cover.png");
+                if (!onProgress) logger.info("Kapak resmi indiriliyor: cover.png");
                 const headers = provider.getDownloadHeaders
                     ? provider.getDownloadHeaders(selectedManga.url)
                     : {};
-                await downloadImage(
-                    selectedManga.coverImageUrl,
-                    coverPath,
-                    headers,
-                );
+                await downloadImage(selectedManga.coverImageUrl, coverPath, headers);
             }
-        } catch (err) {
-            logger.warn(`Kapak resmi indirilemedi: ${err.message}`);
+        } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            if (!onProgress) logger.warn(`Kapak resmi indirilemedi: ${errMsg}`);
         }
     }
 
-    logger.header("İNDİRME BAŞLIYOR");
-    logger.info(`Manga: ${selectedManga.title}`);
-    logger.info(`Bölümler: ${chapters.length} adet`);
-    logger.info(`Konum: ${mangaDir}\n`);
+    if (!onProgress) {
+        logger.header("İNDİRME BAŞLIYOR");
+        logger.info(`Manga: ${selectedManga.title}`);
+        logger.info(`Bölümler: ${chapters.length} adet`);
+        logger.info(`Konum: ${mangaDir}\n`);
+    }
 
-    const seenFileNames = new Set();
-    const chapterQueue = chapters.map((chapter, index) => {
+    const seenFileNames = new Set<string>();
+    const chapterQueue: ChapterQueueItem[] = chapters.map((chapter, index) => {
         const parts = String(chapter.number).split(".");
         const integerPart = parts[0].padStart(3, "0");
-        const numberString =
-            parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
+        const numberString = parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
         const baseFileName = `${safeMangaName}-${numberString}`;
         let uniqueFileName = baseFileName;
         let counter = 1;
@@ -292,7 +355,7 @@ const downloadChapters = async (
         while (chapterQueue.length > 0) {
             const chapterInfo = chapterQueue.shift();
             if (chapterInfo) {
-                await downloadSingleChapter(chapterInfo, provider);
+                await downloadSingleChapter(chapterInfo, provider, onProgress);
             }
         }
     };
@@ -300,8 +363,13 @@ const downloadChapters = async (
     const workers = Array(concurrency).fill(null).map(worker);
     await Promise.all(workers);
 
-    multibar.stop();
-    logger.success("\nTüm indirme işlemleri tamamlandı!");
+    if (!onProgress) {
+        multibar.stop();
+        logger.success("\nTüm indirme işlemleri tamamlandı!");
+    }
 };
 
-module.exports = { downloadChapters };
+export default {
+    downloadChapters,
+    getDownloadSpeed,
+};

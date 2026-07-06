@@ -1,2 +1,6 @@
+allowBuilds:
+    esbuild: true
+    sharp: true
+    sleep: true
 onlyBuiltDependencies:
-  - sharp
+    - sharp

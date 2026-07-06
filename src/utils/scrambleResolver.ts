@@ -1,11 +1,14 @@
-const cheerio = require("cheerio");
-const sharp = require("sharp");
+import * as cheerio from "cheerio";
+import sharp from "sharp";
 
-async function decodeMangaTrPage(imageInput, containerHtml) {
+export async function decodeMangaTrPage(
+    imageInput: string | Buffer,
+    containerHtml: string,
+): Promise<Buffer> {
     const $ = cheerio.load(containerHtml);
 
-    const partDivs = [];
-    $("div").each((i, el) => {
+    const partDivs: ReturnType<typeof $>[] = [];
+    $("div").each((_i, el) => {
         const styleStr = $(el).attr("style") || "";
         if (styleStr.includes("img_part.php")) {
             partDivs.push($(el));
@@ -13,16 +16,17 @@ async function decodeMangaTrPage(imageInput, containerHtml) {
     });
 
     if (partDivs.length === 0) {
-        throw new Error(
-            "No scrambled image parts found inside the HTML container.",
-        );
+        throw new Error("No scrambled image parts found inside the HTML container.");
     }
 
     const image = sharp(imageInput);
     const { width, height } = await image.metadata();
+    if (!width || !height) {
+        throw new Error("Could not load image metadata");
+    }
     const quarterHeight = Math.round(height / 4);
 
-    const compositeList = [];
+    const compositeList: { input: Buffer; top: number; left: number }[] = [];
 
     for (const $div of partDivs) {
         const styleStr = $div.attr("style") || "";
@@ -37,8 +41,7 @@ async function decodeMangaTrPage(imageInput, containerHtml) {
         const bgPosStr = styles["background-position"] || "";
         const percentages = bgPosStr.match(/(\d+(\.\d+)?)\s*%/g);
         if (!percentages) continue;
-        const yPercentStr =
-            percentages.length >= 2 ? percentages[1] : percentages[0];
+        const yPercentStr = percentages.length >= 2 ? percentages[1] : percentages[0];
         const yPercent = parseFloat(yPercentStr);
         const srcIndex = Math.round(yPercent / 33.3333);
 
@@ -52,8 +55,7 @@ async function decodeMangaTrPage(imageInput, containerHtml) {
             transform.includes("scale(-1, -1)") ||
             transform.includes("scale(-1,-1)");
         const topOffset = srcIndex * quarterHeight;
-        const currentHeight =
-            srcIndex === 3 ? height - topOffset : quarterHeight;
+        const currentHeight = srcIndex === 3 ? height - topOffset : quarterHeight;
 
         let part = sharp(imageInput).extract({
             left: 0,
@@ -93,8 +95,8 @@ async function decodeMangaTrPage(imageInput, containerHtml) {
     return outputBuffer;
 }
 
-function parseStyles(styleStr) {
-    const styles = {};
+function parseStyles(styleStr: string): Record<string, string> {
+    const styles: Record<string, string> = {};
     styleStr.split(";").forEach((item) => {
         const parts = item.split(":");
         if (parts.length >= 2) {
@@ -105,7 +107,3 @@ function parseStyles(styleStr) {
     });
     return styles;
 }
-
-module.exports = {
-    decodeMangaTrPage,
-};
